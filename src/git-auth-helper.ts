@@ -39,7 +39,7 @@ class GitAuthHelper {
   private readonly insteadOfKey: string
   private readonly insteadOfValue: string
   private sshCommand = ''
-  private sshKeyPath = ''
+  private sshKeyPaths: string[] = []
   private sshKnownHostsPath = ''
   private temporaryHomePath = ''
 
@@ -183,26 +183,37 @@ class GitAuthHelper {
       return
     }
 
-    // Write key
+    // Write key(s)
     const runnerTemp = process.env['RUNNER_TEMP'] || ''
     assert.ok(runnerTemp, 'RUNNER_TEMP is not defined')
-    const uniqueId = uuid()
-    this.sshKeyPath = path.join(runnerTemp, uniqueId)
-    stateHelper.setSshKeyPath(this.sshKeyPath)
+
     await fs.promises.mkdir(runnerTemp, {recursive: true})
-    await fs.promises.writeFile(
-      this.sshKeyPath,
-      this.settings.sshKey.trim() + '\n',
-      {mode: 0o600}
+
+    console.log(this.settings.sshKey)
+
+    const sshKeys = this.settings.sshKey.split(
+      /(?=-----BEGIN RSA PRIVATE KEY-----)/
     )
+    for (const key of sshKeys) {
+      const uniqueId = uuid()
+      const keyPath = path.join(runnerTemp, uniqueId)
+      this.sshKeyPaths.push(keyPath)
+      await fs.promises.writeFile(keyPath, key.trim() + '\n', {
+        mode: 0o600
+      })
+    }
+    console.log(this.sshKeyPaths)
+    stateHelper.setSshKeyPaths(this.sshKeyPaths)
 
     // Remove inherited permissions on Windows
     if (IS_WINDOWS) {
-      const icacls = await io.which('icacls.exe')
-      await exec.exec(
-        `"${icacls}" "${this.sshKeyPath}" /grant:r "${process.env['USERDOMAIN']}\\${process.env['USERNAME']}:F"`
-      )
-      await exec.exec(`"${icacls}" "${this.sshKeyPath}" /inheritance:r`)
+      for (const key of this.sshKeyPaths) {
+        const icacls = await io.which('icacls.exe')
+        await exec.exec(
+          `"${icacls}" "${key}" /grant:r "${process.env['USERDOMAIN']}\\${process.env['USERNAME']}:F"`
+        )
+        await exec.exec(`"${icacls}" "${key}" /inheritance:r`)
+      }
     }
 
     // Write known hosts
@@ -225,15 +236,16 @@ class GitAuthHelper {
       knownHosts += `# Begin from input known hosts\n${this.settings.sshKnownHosts}\n# end from input known hosts\n`
     }
     knownHosts += `# Begin implicitly added github.com\ngithub.com ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAq2A7hRGmdnm9tUDbO9IDSwBK6TbQa+PXYPCPy6rbTrTtw7PHkccKrpp0yVhp5HdEIcKr6pLlVDBfOLX9QUsyCOV0wzfjIJNlGEYsdlLJizHhbn2mUjvSAHQqZETYP81eFzLQNnPHt4EVVUh7VfDESU84KezmD5QlWpXLmvU31/yMf+Se8xhHTvKSCZIFImWwoG6mbUoWf9nzpIoaSjB+weqqUUmpaaasXVal72J+UX2B+2RPW3RcT0eOzQgqlJL3RKrTJvdsjE3JEAvGq3lGHSZXy28G3skua2SmVi/w4yCE6gbODqnTWlg7+wC604ydGXA8VJiS5ap43JXiUFFAaQ==\n# End implicitly added github.com\n`
-    this.sshKnownHostsPath = path.join(runnerTemp, `${uniqueId}_known_hosts`)
+    this.sshKnownHostsPath = path.join(runnerTemp, `user_known_hosts`)
     stateHelper.setSshKnownHostsPath(this.sshKnownHostsPath)
     await fs.promises.writeFile(this.sshKnownHostsPath, knownHosts)
 
     // Configure GIT_SSH_COMMAND
     const sshPath = await io.which('ssh', true)
-    this.sshCommand = `"${sshPath}" -i "$RUNNER_TEMP/${path.basename(
-      this.sshKeyPath
-    )}"`
+    this.sshCommand = `"${sshPath}"`
+    for (const key of this.sshKeyPaths) {
+      this.sshCommand += ` -i "$RUNNER_TEMP/${path.basename(key)}"`
+    }
     if (this.settings.sshStrict) {
       this.sshCommand += ' -o StrictHostKeyChecking=yes -o CheckHostIP=no'
     }
@@ -297,13 +309,15 @@ class GitAuthHelper {
 
   private async removeSsh(): Promise<void> {
     // SSH key
-    const keyPath = this.sshKeyPath || stateHelper.SshKeyPath
-    if (keyPath) {
-      try {
-        await io.rmRF(keyPath)
-      } catch (err) {
-        core.debug(err.message)
-        core.warning(`Failed to remove SSH key '${keyPath}'`)
+    const keyPaths = this.sshKeyPaths || JSON.parse(stateHelper.SshKeyPaths)
+    if (keyPaths) {
+      for (const key of keyPaths) {
+        try {
+          await io.rmRF(key)
+        } catch (err) {
+          core.debug(err.message)
+          core.warning(`Failed to remove SSH key '${keyPaths}'`)
+        }
       }
     }
 
