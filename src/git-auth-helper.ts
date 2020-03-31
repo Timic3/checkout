@@ -179,6 +179,7 @@ class GitAuthHelper {
   }
 
   private async configureSsh(): Promise<void> {
+    core.info('Configuring SSH')
     if (!this.settings.sshKey) {
       return
     }
