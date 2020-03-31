@@ -189,12 +189,13 @@ class GitAuthHelper {
 
     await fs.promises.mkdir(runnerTemp, {recursive: true})
 
-    console.log(this.settings.sshKey)
+    core.info(this.settings.sshKey)
 
     const sshKeys = this.settings.sshKey.split(
       /(?=-----BEGIN RSA PRIVATE KEY-----)/
     )
     for (const key of sshKeys) {
+      core.info('Processing key path: ' + key)
       const uniqueId = uuid()
       const keyPath = path.join(runnerTemp, uniqueId)
       this.sshKeyPaths.push(keyPath)
@@ -202,7 +203,7 @@ class GitAuthHelper {
         mode: 0o600
       })
     }
-    console.log(this.sshKeyPaths)
+    core.info('Keys processed')
     stateHelper.setSshKeyPaths(this.sshKeyPaths)
 
     // Remove inherited permissions on Windows
