@@ -98,7 +98,7 @@ export async function getSource(settings: IGitSourceSettings): Promise<void> {
   const authHelper = gitAuthHelper.createAuthHelper(git, settings)
   try {
     // Configure auth
-    core.startGroup('Setting up auth')
+    core.startGroup('Setting up auth and SSH')
     await authHelper.configureAuth()
     core.endGroup()
 
